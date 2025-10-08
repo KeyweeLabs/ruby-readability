@@ -100,10 +100,15 @@ module Readability
       end
 
       if whitelist
-        elems = @html.css(whitelist).to_s
+        elems = @html.css(whitelist)
 
-        if body = @html.at_css('body')
-          body.inner_html = elems
+        if elems.any? && (body = @html.at_css('body'))
+          # Keep the original elements (not string representation)
+          # to preserve all child nodes and their content
+          body.inner_html = ""
+          elems.each do |elem|
+            body.add_child(elem.dup)
+          end
         end
       end
 
