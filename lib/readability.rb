@@ -6,9 +6,14 @@ require 'guess_html_encoding'
 
 module Readability
   class Document
+    ELEMENTS_TO_SCORE = %w[section h2 h3 h4 h5 h6 p td pre]
+    TAGS_TO_REMOVE = %w[form object iframe embed svg]
+    SECTION_HEADINGS = %w[h1 h2 h3 h4 h5 h6]
+    BASE_REPLACE_WITH_WHITESPACE = %w[br hr h1 h2 h3 h4 h5 h6 dl dd ol li ul address blockquote center]
+
     DEFAULT_OPTIONS = {
       :retry_length               => 250,
-      :min_text_length            => 25,
+      :min_text_length            => 5,
       :remove_unlikely_candidates => true,
       :weight_classes             => true,
       :clean_conditionally        => true,
@@ -18,16 +23,32 @@ module Readability
       :ignore_image_format        => [],
       :blacklist                  => nil,
       :whitelist                  => nil,
-      :elements_to_score          => ["p", "td", "pre"],
+      :elements_to_score          => ELEMENTS_TO_SCORE,
       :likely_siblings            => ["p"],
       :ignore_redundant_nesting   => false
     }.freeze
 
+    ELEMENT_SCORES = {
+      'article' => 25,
+      'main' => 20,
+      'section' => 8,
+      'div' => 5,
+      'blockquote' => 3,
+      'form' => -3,
+      'th' => -5,
+      'nav' => -25,
+      'aside' => -25,
+      'header' => -25,
+      'footer' => -25
+    }.freeze
+
+    NUM_CANDIDATES = 5
+
     REGEXES = {
         :unlikelyCandidatesRe => /combx|comment|community|disqus|extra|foot|header|menu|remark|rss|shoutbox|sidebar|sponsor|ad-break|agegate|pagination|pager|popup/i,
         :okMaybeItsACandidateRe => /and|article|body|column|main|shadow/i,
-        :positiveRe => /article|body|content|entry|hentry|main|page|pagination|post|text|blog|story/i,
-        :negativeRe => /combx|comment|com-|contact|foot|footer|footnote|masthead|media|meta|outbrain|promo|related|scroll|shoutbox|sidebar|sponsor|shopping|tags|tool|widget/i,
+        :positiveRe => /article|body|content|entry|hentry|main|page|pagination|post|text|blog|story|doc/i,
+        :negativeRe => /combx|comment|com-|contact|foot|footer|footnote|masthead|media|meta|outbrain|promo|related|scroll|shoutbox|sidebar|sponsor|shopping|tags|tool|widget|toc/i,
         :divToPElementsRe => /<(a|blockquote|dl|div|img|ol|p|pre|table|ul)/i,
         :replaceBrsRe => /(<br[^>]*>[ \n\r\t]*){2,}/i,
         :replaceFontsRe => /<(\/?)font[^>]*>/i,
@@ -323,20 +344,26 @@ module Readability
     def select_best_candidate(candidates)
       sorted_candidates = candidates.values.sort { |a, b| b[:content_score] <=> a[:content_score] }
 
-      debug("Top 5 candidates:")
-      sorted_candidates[0...5].each do |candidate|
-        debug("Candidate #{candidate[:elem].name}##{candidate[:elem][:id]}.#{candidate[:elem][:class]} with score #{candidate[:content_score]}")
+      debug("Top #{NUM_CANDIDATES} candidates:")
+      sorted_candidates[0...NUM_CANDIDATES].each do |candidate|
+        elem = candidate[:elem]
+        elem_id = elem[:id] ? "##{elem[:id]}" : ""
+        elem_class = elem[:class] ? ".#{elem[:class]}" : ""
+        debug("Candidate #{elem.name}#{elem_id}#{elem_class} with score #{candidate[:content_score]}. #{elem.text[0..100].gsub("\n", "").strip.inspect}...")
       end
 
       best_candidate = sorted_candidates.first || { :elem => @html.css("body").first, :content_score => 0 }
-      debug("Best candidate #{best_candidate[:elem].name}##{best_candidate[:elem][:id]}.#{best_candidate[:elem][:class]} with score #{best_candidate[:content_score]}")
+      elem = best_candidate[:elem]
+      elem_id = elem[:id] ? "##{elem[:id]}" : ""
+      elem_class = elem[:class] ? ".#{elem[:class]}" : ""
+      debug("Best candidate #{elem.name}#{elem_id}#{elem_class} with score #{best_candidate[:content_score]}")
 
       best_candidate
     end
 
     def get_link_density(elem)
       link_length = elem.css("a").map(&:text).join("").length
-      text_length = elem.text.length
+      text_length = elem.text.gsub("\n", "").strip.length
       link_length / text_length.to_f
     end
 
@@ -345,9 +372,9 @@ module Readability
       @html.css(options[:elements_to_score].join(',')).each do |elem|
         parent_node = elem.parent
         grand_parent_node = parent_node.respond_to?(:parent) ? parent_node.parent : nil
-        inner_text = elem.text
+        inner_text = elem.text.gsub("\n", "").strip
 
-        # If this paragraph is less than 25 characters, don't even count it.
+        # If this paragraph is less than min_text_length characters, don't even count it.
         next if inner_text.length < min_text_length
 
         candidates[parent_node] ||= score_node(parent_node)
@@ -358,7 +385,7 @@ module Readability
         content_score += [(inner_text.length / 100).to_i, 3].min
 
         candidates[parent_node][:content_score] += content_score
-        candidates[grand_parent_node][:content_score] += content_score / 2.0 if grand_parent_node
+        candidates[grand_parent_node][:content_score] += content_score if grand_parent_node
       end
 
       # Scale the final candidates score based on link density. Good content should have a
@@ -386,13 +413,6 @@ module Readability
 
       weight
     end
-
-    ELEMENT_SCORES = {
-      'div' => 5,
-      'blockquote' => 3,
-      'form' => -3,
-      'th' => -5
-    }.freeze
 
     def score_node(elem)
       content_score = class_weight(elem)
@@ -439,11 +459,11 @@ module Readability
     end
 
     def sanitize(node, candidates, options = {})
-      node.css("h1, h2, h3, h4, h5, h6").each do |header|
+      node.css(SECTION_HEADINGS).each do |header|
         header.remove if class_weight(header) < 0 || get_link_density(header) > 0.33
       end
 
-      node.css("form, object, iframe, embed").each do |elem|
+      node.css(TAGS_TO_REMOVE.join(",")).each do |elem|
         elem.remove
       end
 
@@ -464,7 +484,7 @@ module Readability
 
       # We'll add whitespace instead of block elements,
       # so a<br>b will have a nice space between them
-      base_replace_with_whitespace = %w[br hr h1 h2 h3 h4 h5 h6 dl dd ol li ul address blockquote center]
+      base_replace_with_whitespace = BASE_REPLACE_WITH_WHITESPACE
 
       # Use a hash for speed (don't want to make a million calls to include?)
       whitelist = Hash.new
@@ -483,15 +503,18 @@ module Readability
           if el.parent.nil?
             node = Nokogiri::XML::Text.new(el.text, el.document)
             break
-          else
-            if replace_with_whitespace[el.node_name]
-              el.swap(Nokogiri::XML::Text.new(' ' << el.text << ' ', el.document))
+          elsif replace_with_whitespace[el.node_name]
+            if SECTION_HEADINGS.include?(el.node_name)
+              el.swap(Nokogiri::XML::Element.new(el.node_name, el.document) { |node| node.content = el.text })
             else
-              el.swap(Nokogiri::XML::Text.new(el.text, el.document))
+              el.swap(Nokogiri::XML::Text.new(' ' << el.text << ' ', el.document))
             end
+          elsif !el.parent
+            el.swap(Nokogiri::XML::Text.new(el.text, el.document))
+          elsif SECTION_HEADINGS.include?(el.parent.node_name)
+            el.swap(Nokogiri::XML::Text.new(el.text, el.document))
           end
         end
-
       end
 
       s = Nokogiri::XML::Node::SaveOptions
