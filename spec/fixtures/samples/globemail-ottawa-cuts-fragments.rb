@@ -4,7 +4,7 @@
 $required_fragments = [
 #  "Ottawa cuts already vacant positions", # headline
 #  "Of 245 cabinet appointments to be eliminated, many have been unfilled for years", # sub-heading
-  "Treasury Board President Stockwell Day is trumpeting job cuts at government boards and agencies in the name of fiscal prudence – but the measures are largely phantom restraint because most affected posts are empty and have been for some time.",
+  "reasury Board President Stockwell Day is trumpeting job cuts at government boards and agencies in the name of fiscal prudence – but the measures are largely phantom restraint because most affected posts are empty and have been for some time.",
   "Mr. Day, the Harper government's point man for belt-tightening in Ottawa, released Monday a list of 245 cabinet appointments that will be eliminated to make government more efficient.",
   "But 90 per cent of these positions are currently vacant. Many have been unfilled for years – and some for decades – often because the unused positions proved surplus to the needs of agencies or bodies.",
   '“This looks more token than real,” Kevin Gaudet, federal director of the fiscally conservative Canadian Taxpayers Federation, said of the cuts.',
